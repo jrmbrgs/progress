@@ -190,8 +190,15 @@ function todayView() {
       <div class="big ${p == null ? 'none' : ''}"><b>${p == null ? '–' : Math.round(p * 100)}</b><span>%</span>${d ? `<em class="${d > 0 ? 'up' : 'down'}">${d > 0 ? '+' : ''}${d} pts<small>vs ta moyenne</small></em>` : ''}</div>
       <div class="sub">${sub.join(' · ')}</div>
     </section>
-    <div class="list">${state.exercises.map(ex => exRow(ex, k)).join('')}</div>
+    <div class="list">${byRate(k).map(ex => exRow(ex, k)).join('')}</div>
     <p class="hint">Fais une série de tirs, puis touche + pour noter tes réussites.<br>Touche un exercice pour voir ou corriger tes séries du jour.</p>`;
+}
+
+/** Exercices du meilleur au moins bon : % du jour, sinon moyenne 30 j ; sans tir à la fin. */
+function byRate(k) {
+  const rate = ex => ratio(val(ex, k)) ?? ratio(tally([ex], sinceKey(30))) ?? -1;
+  return state.exercises.map((ex, i) => ({ ex, i, r: rate(ex) }))
+    .sort((a, b) => b.r - a.r || a.i - b.i).map(o => o.ex);
 }
 
 function exRow(ex, k) {
