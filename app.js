@@ -29,10 +29,31 @@ const DEFAULT_EXERCISES = [
   { id: 'flo', name: 'Floater', emoji: '🎈', color: '#5ed1d1' },
 ];
 
+/*
+ * Zones du demi-terrain (panier en haut, droite/gauche vues par le tireur).
+ * x, y : position dans le dessin ; good : réussite visée pour être « vert ».
+ */
+const ZONES = {
+  lf: { label: 'Lancer franc', short: 'LF', x: 150, y: 116, good: .7 },
+  dpd: { label: 'Double pas droite', short: 'DP D', x: 198, y: 50, good: .8 },
+  dpg: { label: 'Double pas gauche', short: 'DP G', x: 102, y: 50, good: .8 },
+  flo: { label: 'Floater', short: 'Floater', x: 150, y: 78, good: .5 },
+  mdax: { label: 'Mi-distance axe', short: 'Mi-dist.', x: 150, y: 158, good: .5 },
+  mdd: { label: 'Mi-distance droite', short: 'Mi-dist. D', x: 226, y: 104, good: .5 },
+  mdg: { label: 'Mi-distance gauche', short: 'Mi-dist. G', x: 74, y: 104, good: .5 },
+  '3ax': { label: '3 points axe', short: '3 pts', x: 150, y: 194, good: .4 },
+  '3d45': { label: '3 points 45° droite', short: '45° D', x: 262, y: 150, good: .4 },
+  '3g45': { label: '3 points 45° gauche', short: '45° G', x: 38, y: 150, good: .4 },
+  '3d0': { label: '3 points 0° droite', short: '0° D', x: 292, y: 26, good: .4 },
+  '3g0': { label: '3 points 0° gauche', short: '0° G', x: 8, y: 26, good: .4 },
+};
+const PERIODS = [['today', "Aujourd'hui"], ['7', '7 j'], ['30', '30 j'], ['all', 'Tout']];
+
 /* ---------- State ---------- */
 let state = load();
 let tab = 'today';
 let statsSel = 'all';
+let courtPeriod = '30';
 let popKey = null; // exercice dont le bouton + s'anime au prochain affichage
 
 /*
@@ -41,12 +62,12 @@ let popKey = null; // exercice dont le bouton + s'anime au prochain affichage
  * deleted[exId] = date de suppression, ex.updatedAt, orderAt :
  * ces horodatages permettent de fusionner les données de plusieurs appareils.
  */
-function defaultExercises() { return DEFAULT_EXERCISES.map(e => ({ ...e, size: SERIES, updatedAt: 0 })); }
+function defaultExercises() { return DEFAULT_EXERCISES.map(e => ({ ...e, size: SERIES, zone: e.id, updatedAt: 0 })); }
 function emptyState(seed = true) { return { v: 1, exercises: seed ? defaultExercises() : [], log: {}, stamps: {}, deleted: {}, orderAt: 0 }; }
 function normalize(s, seed = true) {
   if (!s || !Array.isArray(s.exercises) || typeof s.log !== 'object') return emptyState(seed);
   s.v = 1; s.stamps ||= {}; s.deleted ||= {}; s.orderAt ||= 0;
-  for (const e of s.exercises) { e.updatedAt ||= 0; e.size ||= SERIES; }
+  for (const e of s.exercises) { e.updatedAt ||= 0; e.size ||= SERIES; if (e.zone === undefined) e.zone = ZONES[e.id] ? e.id : ''; }
   return s;
 }
 function load() {
@@ -138,11 +159,11 @@ const ICON_PLUS = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" s
    ========================================================= */
 function render() {
   document.querySelectorAll('.tabbar button').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
-  $('#title').textContent = { today: 'Séance du jour', history: 'Historique', stats: 'Progrès' }[tab];
+  $('#title').textContent = { today: 'Séance du jour', court: 'Terrain', history: 'Historique', stats: 'Progrès' }[tab];
   $('#eyebrow').textContent = tab === 'today' ? today().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'short' }) : '';
   const view = $('#view');
   if (!state.exercises.length) view.innerHTML = emptyView();
-  else view.innerHTML = tab === 'today' ? todayView() : tab === 'history' ? historyView() : statsView();
+  else view.innerHTML = tab === 'today' ? todayView() : tab === 'court' ? courtView() : tab === 'history' ? historyView() : statsView();
   popKey = null;
   if (tab === 'stats') { const sc = view.querySelector('.heat-scroll'); if (sc) sc.scrollLeft = sc.scrollWidth; }
 }
@@ -296,6 +317,73 @@ function heatmap(cls) {
   return `<div class="heat-scroll"><div class="heat">${html}</div></div>`;
 }
 
+/* ---------- Terrain ---------- */
+function courtView() {
+  const from = { today: key(today()), 7: sinceKey(7), 30: sinceKey(30), all: '' }[courtPeriod];
+  const chips = `<div class="chips">${PERIODS.map(([v, l]) => `<button class="chip ${courtPeriod === v ? 'active' : ''}" data-act="period" data-v="${v}">${l}</button>`).join('')}</div>`;
+  // plusieurs exercices peuvent partager une zone : on additionne
+  const zones = Object.entries(ZONES).map(([id, z]) => {
+    const exs = state.exercises.filter(ex => ex.zone === id);
+    return { id, z, exs, t: tally(exs, from) };
+  }).filter(o => o.exs.length);
+  const level = o => {
+    const r = ratio(o.t);
+    return r == null ? 'none' : r >= o.z.good ? 'good' : r >= o.z.good - .15 ? 'mid' : 'bad';
+  };
+  const bubbles = zones.map(o => {
+    const r = ratio(o.t), w = r == null ? 28 : 40;
+    return `<g class="zone ${level(o)}" data-act="zone" data-zone="${o.id}">
+      <rect x="${o.z.x - w / 2}" y="${o.z.y - 11}" width="${w}" height="22" rx="11"/>
+      <text x="${o.z.x}" y="${o.z.y + 4.5}">${r == null ? '–' : Math.round(r * 100) + '%'}</text>
+      <text class="tag" x="${o.z.x}" y="${o.z.y + 21}">${o.z.short}</text>
+    </g>`;
+  }).join('');
+  const rated = zones.filter(o => o.t.a >= MIN_RECORD);
+  const score = o => ratio(o.t) / o.z.good; // comparé à l'objectif de la zone
+  const best = rated.length ? rated.reduce((a, b) => score(b) > score(a) ? b : a) : null;
+  const worst = rated.length > 1 ? rated.reduce((a, b) => score(b) < score(a) ? b : a) : null;
+  const tot = tally(state.exercises.filter(ex => ex.zone), from);
+  const off = state.exercises.filter(ex => !ex.zone);
+  return chips + `<div class="card court">
+      <svg viewBox="-14 -8 328 238">
+        <rect class="floor" x="0" y="0" width="300" height="222" rx="4"/>
+        <path class="ln" d="M18 0 V58 A135 135 0 0 0 282 58 V0"/>
+        <rect class="ln" x="101" y="0" width="98" height="116"/>
+        <circle class="ln" cx="150" cy="116" r="36"/>
+        <line class="ln" x1="132" y1="16" x2="168" y2="16"/>
+        <circle class="rim" cx="150" cy="28" r="7"/>
+        ${bubbles}
+      </svg>
+      <div class="legend"><span><i style="background:var(--up)"></i>Bon niveau</span><span><i style="background:var(--accent)"></i>Presque</span><span><i style="background:var(--danger)"></i>À travailler</span></div>
+    </div>
+    <div class="kpis" style="margin-top:8px">
+      <div class="kpi"><small>Meilleure zone</small><b class="hl" style="font-size:20px;white-space:normal;line-height:1.15">${best ? esc(best.z.label) : '–'}</b>${best ? `<span class="kpi-sub">${pct(ratio(best.t))} · ${best.t.m}/${best.t.a}</span>` : ''}</div>
+      <div class="kpi"><small>À travailler</small><b style="font-size:20px;white-space:normal;line-height:1.15">${worst ? esc(worst.z.label) : '–'}</b>${worst ? `<span class="kpi-sub">${pct(ratio(worst.t))} · ${worst.t.m}/${worst.t.a}</span>` : ''}</div>
+    </div>
+    ${off.length ? `<div class="card"><h3><span>Hors terrain</span></h3><div class="rates">${off.map(ex => {
+      const r = ratio(tally([ex], from));
+      return `<div class="r" data-act="add" data-id="${ex.id}"><span>${ex.emoji}</span><span class="n">${esc(ex.name)}</span><span class="track"><span style="width:${(r || 0) * 100}%"></span></span><span class="pct" style="width:46px">${pct(r)}</span></div>`;
+    }).join('')}</div></div>` : ''}
+    <p class="hint">${tot.a ? `${tot.m} / ${tot.a} tirs sur la période. ` : 'Aucun tir sur la période. '}Touche une zone pour noter une série.<br>Le vert dépend de la zone : 70 % aux lancers francs, 40 % à 3 points…</p>`;
+}
+
+/** Une zone peut regrouper plusieurs exercices : on demande lequel. */
+function openZone(id) {
+  const exs = state.exercises.filter(ex => ex.zone === id);
+  if (exs.length === 1) return openPick(exs[0]);
+  openSheet((body, close) => {
+    body.innerHTML = `
+      <div class="sheet-head"><button data-a="cancel">Annuler</button><h2>${esc(ZONES[id].label)}</h2><span style="width:52px"></span></div>
+      ${exs.map(ex => `<button class="btn" data-a="ex" data-id="${ex.id}">${ex.emoji} ${esc(ex.name)}</button>`).join('')}`;
+    body.addEventListener('click', e => {
+      const b = e.target.closest('[data-a]');
+      if (!b) return;
+      close();
+      if (b.dataset.a === 'ex') setTimeout(() => openPick(byId(b.dataset.id)), 320);
+    });
+  });
+}
+
 /* =========================================================
    Actions
    ========================================================= */
@@ -320,12 +408,14 @@ view.addEventListener('click', e => {
     case 'past': openPastPicker(); break;
     case 'edit': openEditor(ex); break;
     case 'sel': statsSel = el.dataset.id; render(); window.scrollTo({ top: 0 }); break;
+    case 'period': courtPeriod = el.dataset.v; render(); break;
+    case 'zone': openZone(el.dataset.zone); break;
     case 'new': openEditor(); break;
     case 'defaults': {
       const now = Date.now();
       for (const d of DEFAULT_EXERCISES) {
         if (byId(d.id)) continue;
-        state.exercises.push({ ...d, size: SERIES, updatedAt: now });
+        state.exercises.push({ ...d, size: SERIES, zone: d.id, updatedAt: now });
       }
       save(); render(); toast('Exercices ajoutés');
       break;
@@ -459,7 +549,7 @@ function openPastPicker() {
 function openEditor(ex) {
   const isNew = !ex;
   const d = ex ? { ...ex } : {
-    name: '', emoji: EMOJIS[state.exercises.length % EMOJIS.length], color: COLORS[state.exercises.length % COLORS.length], size: SERIES,
+    name: '', emoji: EMOJIS[state.exercises.length % EMOJIS.length], color: COLORS[state.exercises.length % COLORS.length], size: SERIES, zone: '',
   };
   openSheet((body, close) => {
     const draw = () => {
@@ -468,6 +558,7 @@ function openEditor(ex) {
         <div class="sheet-head"><button data-a="cancel">Annuler</button><h2>${isNew ? 'Nouvel exercice' : 'Modifier'}</h2><button class="primary" data-a="save">${isNew ? 'Ajouter' : 'OK'}</button></div>
         <div class="field"><div class="name-row"><div class="emoji-preview">${d.emoji}</div><input class="text" id="f-name" maxlength="40" placeholder="Ex. Tir à mi-distance" value="${esc(d.name)}" autocomplete="off"></div></div>
         <div class="field"><span class="label">Icône</span><div class="emojis">${emojis.map(e => `<button data-a="emoji" data-v="${e}" class="${e === d.emoji ? 'sel' : ''}">${e}</button>`).join('')}</div></div>
+        <div class="field"><span class="label">Position sur le terrain</span><select class="text" id="f-zone"><option value="">Hors terrain</option>${Object.entries(ZONES).map(([id, z]) => `<option value="${id}" ${d.zone === id ? 'selected' : ''}>${z.label}</option>`).join('')}</select></div>
         <div class="field"><span class="label">Série</span><div class="stepper" style="margin-top:0"><span>Tirs par série</span><div><button data-a="size" data-v="-1">−</button><b>${d.size}</b><button data-a="size" data-v="1">+</button></div></div></div>
         ${isNew ? '' : `
           <div class="field"><span class="label">Ordre</span><div class="order"><button class="btn" data-a="move" data-v="-1">↑ Monter</button><button class="btn" data-a="move" data-v="1">↓ Descendre</button></div></div>
@@ -475,6 +566,7 @@ function openEditor(ex) {
       `;
       const input = body.querySelector('#f-name');
       input.addEventListener('input', () => (d.name = input.value));
+      body.querySelector('#f-zone').addEventListener('change', e => (d.zone = e.target.value));
       if (isNew && !d.name) setTimeout(() => input.focus(), 350);
     };
     body.addEventListener('click', e => {
@@ -500,7 +592,7 @@ function openEditor(ex) {
           return;
         case 'save': {
           if (!d.name.trim()) { body.querySelector('#f-name').focus(); return toast('Donne-lui un nom'); }
-          const fields = { name: d.name.trim(), emoji: d.emoji, color: d.color, size: d.size, updatedAt: Date.now() };
+          const fields = { name: d.name.trim(), emoji: d.emoji, color: d.color, size: d.size, zone: d.zone, updatedAt: Date.now() };
           if (isNew) { state.exercises.push({ id: uid(), ...fields }); toast(`« ${fields.name} » ajouté`); }
           else Object.assign(ex, fields);
           save(); render();

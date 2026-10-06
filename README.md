@@ -4,6 +4,7 @@ Une app pour suivre sa progression au tir en basket : lancers francs, doubles pa
 
 ## Fonctionnalités
 - **Entraînement** : fais une série de tirs, puis touche **+** et choisis le nombre de tirs réussis (0 à 10). Touche un exercice pour revoir tes séries du jour ou en retirer une.
+- **Terrain** : un demi-terrain avec le % de réussite de chaque zone (lancers francs, doubles pas, 3 points axe/45°/0°, mi-distance, floater), en vert, orange ou rouge selon le niveau visé pour la zone. La période se choisit (aujourd'hui, 7 jours, 30 jours, tout), et toucher une zone ouvre la saisie d'une série. Chaque exercice a une position sur le terrain, réglable dans « Modifier l'exercice ».
 - **Historique** : toutes les séances jour par jour. Touche une séance pour la corriger, ou ajoute une séance passée.
 - **Progrès** : réussite sur 30 jours et son évolution, meilleure séance, meilleure série, courbe de progression par exercice, calendrier des entraînements.
 - **Exercices** : 9 sont créés au départ (lancers francs, doubles pas droite/gauche, 3 points axe/45°/0°, floater). Le bouton **+** en haut en ajoute d'autres. Chaque exercice a son icône, sa couleur et son nombre de tirs par série (10 par défaut).
