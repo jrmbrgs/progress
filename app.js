@@ -131,14 +131,15 @@ const ratio = t => t.a ? t.m / t.a : null;
 const pct = r => r == null ? '–' : Math.round(r * 100) + ' %';
 const sinceKey = n => key(addDays(today(), -(n - 1)));
 
-const ICON_PLUS = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>';
+const ICON_PLUS = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>';
 
 /* =========================================================
    Views
    ========================================================= */
 function render() {
   document.querySelectorAll('.tabbar button').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
-  $('#title').textContent = { today: 'Entraînement', history: 'Historique', stats: 'Progrès' }[tab];
+  $('#title').textContent = { today: 'Séance du jour', history: 'Historique', stats: 'Progrès' }[tab];
+  $('#eyebrow').textContent = tab === 'today' ? today().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'short' }) : '';
   const view = $('#view');
   if (!state.exercises.length) view.innerHTML = emptyView();
   else view.innerHTML = tab === 'today' ? todayView() : tab === 'history' ? historyView() : statsView();
@@ -156,20 +157,18 @@ function emptyView() {
 }
 
 function todayView() {
-  const t = today(), k = key(t);
+  const k = key(today());
   const tot = tally(state.exercises, k, k);
-  const p = ratio(tot) || 0;
-  const r = 22, c = 2 * Math.PI * r;
-  const dateStr = t.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
-  const st = streak();
-  return `<div class="summary">
-      <div class="ring-wrap">
-        <svg viewBox="0 0 52 52" width="52" height="52" style="transform:rotate(-90deg)"><circle cx="26" cy="26" r="${r}" fill="none" stroke="var(--card-2)" stroke-width="4"/><circle cx="26" cy="26" r="${r}" fill="none" stroke="var(--accent)" stroke-width="4" stroke-linecap="round" stroke-dasharray="${c}" stroke-dashoffset="${c * (1 - p)}" style="transition:stroke-dashoffset .4s"/></svg>
-        <span>${tot.a ? Math.round(p * 100) + '%' : '–'}</span>
-      </div>
-      <div><div class="greet">${dateStr}</div><div class="count">${tot.a ? `${tot.m} réussis sur ${tot.a} tirs` : 'Pas encore de série'}</div></div>
-      <div class="day"><b>${st ? '🔥 ' + st : trainingDays().length}</b><small>${st ? (st > 1 ? 'jours de suite' : 'jour de suite') : 'entraînements'}</small></div>
-    </div>
+  const p = ratio(tot);
+  // écart avec la moyenne des 30 jours précédents
+  const ref = ratio(tally(state.exercises, sinceKey(31), key(addDays(today(), -1))));
+  const d = p != null && ref != null ? Math.round((p - ref) * 100) : null;
+  const st = streak(), n = trainingDays().length;
+  const sub = [tot.a ? `<b>${tot.m} / ${tot.a}</b> tirs` : 'Pas encore de série', st ? `🔥 ${st} jour${st > 1 ? 's' : ''} de suite` : `${n} entraînement${n > 1 ? 's' : ''}`];
+  return `<section class="hero">
+      <div class="big ${p == null ? 'none' : ''}"><b>${p == null ? '–' : Math.round(p * 100)}</b><span>%</span>${d ? `<em class="${d > 0 ? 'up' : 'down'}">${d > 0 ? '+' : ''}${d} pts<small>vs ta moyenne</small></em>` : ''}</div>
+      <div class="sub">${sub.join(' · ')}</div>
+    </section>
     <div class="list">${state.exercises.map(ex => exRow(ex, k)).join('')}</div>
     <p class="hint">Fais une série de tirs, puis touche + pour noter tes réussites.<br>Touche un exercice pour voir ou corriger tes séries du jour.</p>`;
 }
@@ -177,15 +176,15 @@ function todayView() {
 function exRow(ex, k) {
   const list = series(ex, k), v = sum(list);
   const ref = ratio(tally([ex], sinceKey(30), key(addDays(today(), -1))));
-  let sub = list.length ? `${list.map(([m]) => m).join(' · ')} → <b>${pct(v.m / v.a)}</b>` : `Séries de ${ex.size} tirs`;
+  let sub = list.length ? `Séries : ${list.map(([m]) => m).join(' · ')}` : `Séries de ${ex.size} tirs`;
   if (ref != null) sub += ` · moy. ${pct(ref)}`;
-  return `<div class="ex" data-act="day" data-id="${ex.id}" style="--c:${ex.color}">
-    <div class="emoji">${ex.emoji}</div>
+  return `<div class="ex" data-act="day" data-id="${ex.id}">
     <div class="body">
       <div class="name">${esc(ex.name)}</div>
       <div class="sub">${sub}</div>
       <div class="meter"><span style="width:${v.a ? v.m / v.a * 100 : 0}%"></span></div>
     </div>
+    <div class="val ${v.a ? '' : 'none'}">${v.a ? `${Math.round(v.m / v.a * 100)}<small>%</small>` : '–'}</div>
     <button class="shot ${popKey === ex.id ? 'pop' : ''}" data-act="add" data-id="${ex.id}" aria-label="Noter une série">${ICON_PLUS}</button>
   </div>`;
 }
@@ -199,7 +198,7 @@ function historyView() {
     const tot = tally(exs, k, k);
     return `<div class="day-card" data-act="edit-day" data-day="${k}">
       <h3><span>${dayLabel(k)}</span><small>${tot.m}/${tot.a} · ${pct(ratio(tot))}</small></h3>
-      <div class="rates">${exs.map(ex => { const v = val(ex, k); return `<div class="r" style="--c:${ex.color}"><span>${ex.emoji}</span><span class="n">${esc(ex.name)}</span><span class="track"><span style="width:${v.m / v.a * 100}%"></span></span><span class="pct" style="width:auto;min-width:46px">${v.m}/${v.a}</span></div>`; }).join('')}</div>
+      <div class="rates">${exs.map(ex => { const v = val(ex, k); return `<div class="r"><span>${ex.emoji}</span><span class="n">${esc(ex.name)}</span><span class="track"><span style="width:${v.m / v.a * 100}%"></span></span><span class="pct" style="width:auto;min-width:46px">${v.m}/${v.a}</span></div>`; }).join('')}</div>
     </div>`;
   }).join('')}</div>`;
 }
@@ -226,7 +225,7 @@ function statsAll() {
   const counts = {};
   for (const k in state.log) counts[k] = tally(exs, k, k).a;
   const max = Math.max(1, ...Object.values(counts));
-  const heat = heatmap('var(--accent)', d => {
+  const heat = heatmap(d => {
     const n = counts[key(d)];
     return n ? 'lvl' + Math.max(1, Math.ceil(n / max * 4)) : '';
   });
@@ -238,9 +237,9 @@ function statsAll() {
     </div>
     <div class="card"><h3><span>Réussite par exercice</span><span>30 jours</span></h3><div class="rates">${exs.map(ex => {
       const r = ratio(tally([ex], sinceKey(30)));
-      return `<div class="r" style="--c:${ex.color}" data-act="sel" data-id="${ex.id}"><span>${ex.emoji}</span><span class="n">${esc(ex.name)}</span><span class="track"><span style="width:${(r || 0) * 100}%"></span></span><span class="pct" style="width:46px">${pct(r)}</span></div>`;
+      return `<div class="r" data-act="sel" data-id="${ex.id}"><span>${ex.emoji}</span><span class="n">${esc(ex.name)}</span><span class="track"><span style="width:${(r || 0) * 100}%"></span></span><span class="pct" style="width:46px">${pct(r)}</span></div>`;
     }).join('')}</div></div>
-    <div class="card" style="--c:var(--accent)"><h3><span>Jours d'entraînement</span><span>${today().getFullYear()}</span></h3>${heat}
+    <div class="card"><h3><span>Jours d'entraînement</span><span>${today().getFullYear()}</span></h3>${heat}
       <div class="legend"><span><i style="background:var(--card-2)"></i>Repos</span><span><i style="background:color-mix(in srgb, var(--c) 30%, var(--card-2))"></i>Peu de tirs</span><span><i style="background:var(--c)"></i>Beaucoup</span></div>
     </div>`;
 }
@@ -249,15 +248,15 @@ function statsOne(ex) {
   const ss = sessions(ex);
   const all = tally([ex]);
   const best = bestSession(ex), top = bestSeries(ex);
-  return `<div class="kpis" style="--c:${ex.color}">
-      <div class="kpi"><small>Réussite 30 j</small><b style="color:var(--c)">${pct(ratio(tally([ex], sinceKey(30))))}${trend([ex])}</b></div>
+  return `<div class="kpis">
+      <div class="kpi"><small>Réussite 30 j</small><b class="hl">${pct(ratio(tally([ex], sinceKey(30))))}${trend([ex])}</b></div>
       <div class="kpi"><small>Meilleure séance</small><b>${best ? pct(best.m / best.a) : '–'}${best ? `<em>${best.m}/${best.a}</em>` : ''}</b></div>
       <div class="kpi"><small>Meilleure série</small><b>${top ? `${top.m}<em>/ ${top.a}</em>` : '–'}</b></div>
       <div class="kpi"><small>Tirs</small><b>${all.a}<em>${ss.length} séance${ss.length > 1 ? 's' : ''}</em></b></div>
     </div>
-    <div class="card" style="--c:${ex.color}"><h3><span>${ex.emoji} ${esc(ex.name)}</span><span>${ss.length ? `${Math.min(ss.length, 30)} dernières séances` : ''}</span></h3>
+    <div class="card"><h3><span>${ex.emoji} ${esc(ex.name)}</span><span>${ss.length ? `${Math.min(ss.length, 30)} dernières séances` : ''}</span></h3>
       ${ss.length ? chart(ss.slice(-30)) : '<p class="note" style="margin:0">Pas encore de séance pour cet exercice.</p>'}
-      ${ss.length ? '<div class="legend" style="--c:' + ex.color + '"><span><i style="background:var(--c);opacity:.45;border-radius:50%"></i>Une séance</span><span><i style="background:var(--c);height:3px;vertical-align:3px"></i>Tendance</span></div>' : ''}
+      ${ss.length ? '<div class="legend"><span><i style="background:var(--c);opacity:.45;border-radius:50%"></i>Une séance</span><span><i style="background:var(--c);height:3px;vertical-align:3px"></i>Tendance</span></div>' : ''}
     </div>
     ${ss.length ? `<p class="hint">Réussite totale ${pct(ratio(all))}${best ? ` · meilleure séance le ${shortDate(best.k)}` : ''}${top ? ` · meilleure série le ${shortDate(top.k)}` : ''}</p>` : ''}
     <button class="btn" data-act="edit" data-id="${ex.id}" style="margin-top:14px">Modifier l'exercice</button>`;
@@ -280,7 +279,7 @@ function chart(ss) {
     <text x="${x(0)}" y="${H - 4}" text-anchor="${n ? 'start' : 'middle'}">${shortDate(ss[0].k)}</text>${n ? `<text x="${x(n)}" y="${H - 4}" text-anchor="end">${shortDate(ss[n].k)}</text>` : ''}</svg></div>`;
 }
 
-function heatmap(color, cls) {
+function heatmap(cls) {
   const t = today();
   const start = addDays(weekStart(t), -52 * 7);
   let html = '';
@@ -294,7 +293,7 @@ function heatmap(color, cls) {
       html += d > t ? '<i class="none"></i>' : `<i class="${cls(d)}" data-act="edit-day" data-day="${key(d)}"></i>`;
     }
   }
-  return `<div class="heat-scroll"><div class="heat" style="--c:${color}">${html}</div></div>`;
+  return `<div class="heat-scroll"><div class="heat">${html}</div></div>`;
 }
 
 /* =========================================================
@@ -382,13 +381,12 @@ function openSheet(build) {
 
 /** Grille 0…taille de série : un toucher note les réussites d'une série. */
 function pickGrid(ex) {
-  return `<div class="pick" style="--c:${ex.color}">${[...Array(ex.size + 1)].map((_, i) => `<button data-a="pick" data-id="${ex.id}" data-v="${i}">${i}</button>`).join('')}</div>`;
+  return `<div class="pick">${[...Array(ex.size + 1)].map((_, i) => `<button data-a="pick" data-id="${ex.id}" data-v="${i}">${i}</button>`).join('')}</div>`;
 }
 
 /** Note une série du jour pour un exercice. */
 function openPick(ex) {
   openSheet((body, close) => {
-    body.style.setProperty('--c', ex.color);
     body.innerHTML = `
       <div class="sheet-head"><button data-a="cancel">Annuler</button><h2>${ex.emoji} ${esc(ex.name)}</h2><span style="width:52px"></span></div>
       <p class="pick-q">Combien de tirs réussis<br>sur <b>${ex.size}</b> ?</p>
@@ -414,7 +412,7 @@ function openDay(k, onlyId) {
         ${onlyId ? `<p class="note" style="margin-top:-4px;text-align:center">${dayLabel(k)}</p>` : ''}
         ${exs.map(ex => {
           const list = series(ex, k), v = sum(list);
-          return `<div class="cnt-row" style="--c:${ex.color}">
+          return `<div class="cnt-row">
             <div class="t"><span>${ex.emoji}</span><span>${esc(ex.name)}</span><em>${v.a ? `${v.m}/${v.a} · ${pct(v.m / v.a)}` : ''}</em></div>
             ${list.length ? `<div class="series">${list.map(([m, a], i) => `<button data-a="del" data-id="${ex.id}" data-v="${i}">${m}/${a}<span>×</span></button>`).join('')}</div>` : ''}
             <small class="pick-label">Ajouter une série de ${ex.size} tirs</small>
@@ -466,12 +464,10 @@ function openEditor(ex) {
   openSheet((body, close) => {
     const draw = () => {
       const emojis = EMOJIS.includes(d.emoji) ? EMOJIS : [d.emoji, ...EMOJIS.slice(0, -1)];
-      body.style.setProperty('--c', d.color);
       body.innerHTML = `
         <div class="sheet-head"><button data-a="cancel">Annuler</button><h2>${isNew ? 'Nouvel exercice' : 'Modifier'}</h2><button class="primary" data-a="save">${isNew ? 'Ajouter' : 'OK'}</button></div>
         <div class="field"><div class="name-row"><div class="emoji-preview">${d.emoji}</div><input class="text" id="f-name" maxlength="40" placeholder="Ex. Tir à mi-distance" value="${esc(d.name)}" autocomplete="off"></div></div>
         <div class="field"><span class="label">Icône</span><div class="emojis">${emojis.map(e => `<button data-a="emoji" data-v="${e}" class="${e === d.emoji ? 'sel' : ''}">${e}</button>`).join('')}</div></div>
-        <div class="field"><span class="label">Couleur</span><div class="colors">${COLORS.map(c => `<button data-a="color" data-v="${c}" class="${c === d.color ? 'sel' : ''}" style="--sw:${c}" aria-label="couleur"></button>`).join('')}</div></div>
         <div class="field"><span class="label">Série</span><div class="stepper" style="margin-top:0"><span>Tirs par série</span><div><button data-a="size" data-v="-1">−</button><b>${d.size}</b><button data-a="size" data-v="1">+</button></div></div></div>
         ${isNew ? '' : `
           <div class="field"><span class="label">Ordre</span><div class="order"><button class="btn" data-a="move" data-v="-1">↑ Monter</button><button class="btn" data-a="move" data-v="1">↓ Descendre</button></div></div>
@@ -488,7 +484,6 @@ function openEditor(ex) {
       switch (b.dataset.a) {
         case 'cancel': return close();
         case 'emoji': d.emoji = v; break;
-        case 'color': d.color = v; break;
         case 'size': d.size = Math.min(30, Math.max(1, d.size + +v)); break;
         case 'move': {
           const i = state.exercises.findIndex(x => x.id === ex.id), j = i + +v;
@@ -697,10 +692,10 @@ function drawSyncBox() {
 
 /* ---------- Thème (par appareil, non synchronisé) ---------- */
 const THEME_KEY = 'progress.theme';
-function getTheme() { try { return localStorage.getItem(THEME_KEY) || 'auto'; } catch (e) { return 'auto'; } }
+function getTheme() { try { return localStorage.getItem(THEME_KEY) || 'dark'; } catch (e) { return 'dark'; } }
 function setTheme(t) {
-  try { t === 'auto' ? localStorage.removeItem(THEME_KEY) : localStorage.setItem(THEME_KEY, t); } catch (e) {}
-  if (t === 'auto') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = t;
+  try { t === 'dark' ? localStorage.removeItem(THEME_KEY) : localStorage.setItem(THEME_KEY, t); } catch (e) {}
+  if (t === 'dark') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = t;
   applyThemeColor();
 }
 /** Aligne la couleur de la barre système sur le thème effectif. */
@@ -715,7 +710,7 @@ function drawThemeSeg() {
   const el = document.getElementById('theme-seg');
   if (!el) return;
   const t = getTheme();
-  el.innerHTML = [['auto', 'Auto'], ['light', 'Clair'], ['dark', 'Sombre']]
+  el.innerHTML = [['dark', 'Sombre'], ['light', 'Clair'], ['auto', 'Auto']]
     .map(([v, l]) => `<button data-a="theme" data-v="${v}" class="${t === v ? 'sel' : ''}">${l}</button>`).join('');
 }
 
